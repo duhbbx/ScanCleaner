@@ -1,6 +1,7 @@
 name: Build and release
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 permissions:
@@ -130,8 +131,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $env:QT_PLUGIN_PATH = ''
           $env:QML_IMPORT_PATH = ''
-          & ./dist/stage/bin/ScanCleaner.exe --version
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $process = Start-Process -FilePath ./dist/stage/bin/ScanCleaner.exe -ArgumentList '--version' -Wait -PassThru
+          if ($process.ExitCode) { exit $process.ExitCode }
       - name: Include notices
         shell: bash
         run: bash packaging/collect-notices.sh dist/stage .deps/opencv
