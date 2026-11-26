@@ -1,0 +1,242 @@
+name: Build and release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  OPENCV_REV: 49486f61fb25722cbcf586b7f4320921d46fb38e
+  QT_VERSION: 6.8.3
+
+jobs:
+  linux:
+    name: Linux · ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04
+            image: ubuntu:24.04
+            flavor: ubuntu-24.04-amd64
+          - name: Debian 13
+            image: debian:13
+            flavor: debian-13-amd64
+          - name: Arch Linux
+            image: archlinux:base-devel
+            flavor: archlinux-x86_64
+    steps:
+      - name: Install Debian or Ubuntu build dependencies
+        if: matrix.flavor != 'archlinux-x86_64'
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates build-essential cmake ninja-build dpkg-dev \
+            qt6-base-dev qt6-declarative-dev qt6-pdf-dev qt6-image-formats-plugins libopencv-dev \
+            qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-dialogs \
+            qml6-module-qtquick-layouts qml6-module-qtquick-templates qml6-module-qtquick-window \
+            qml6-module-qtqml-workerscript fonts-dejavu-core
+      - name: Install Arch build dependencies
+        if: matrix.flavor == 'archlinux-x86_64'
+        run: |
+          pacman -Syu --noconfirm --needed git cmake ninja qt6-base qt6-declarative qt6-webengine \
+            qt6-imageformats opencv ttf-dejavu
+      - uses: actions/checkout@v4
+      - name: Build and install a Debian package
+        if: matrix.flavor != 'archlinux-x86_64'
+        env:
+          PACKAGE_FLAVOR: ${{ matrix.flavor }}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr "-DSCAN_PACKAGE_FLAVOR=$PACKAGE_FLAVOR"
+          cmake --build build --parallel 3
+          ctest --test-dir build --output-on-failure
+          cpack --config build/CPackConfig.cmake -G DEB -B dist
+          apt-get install -y ./dist/*.deb
+          QT_QPA_PLATFORM=offscreen ScanCleaner --version
+      - name: Build and install an Arch package
+        if: matrix.flavor == 'archlinux-x86_64'
+        run: |
+          useradd -m builder
+          work=$(mktemp -d)
+          mkdir -p "$work/source" dist
+          git archive HEAD | tar -x -C "$work/source"
+          cp packaging/linux/PKGBUILD "$work/PKGBUILD"
+          chown -R builder:builder "$work"
+          cd "$work"
+          runuser -u builder -- makepkg --noconfirm --noprogressbar
+          pacman -U --noconfirm ./*.pkg.tar.zst
+          QT_QPA_PLATFORM=offscreen ScanCleaner --version
+          cp ./*.pkg.tar.zst "$GITHUB_WORKSPACE/dist/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.flavor }}
+          path: |
+            dist/*.deb
+            dist/*.pkg.tar.zst
+          if-no-files-found: error
+
+  windows:
+    name: Windows · ${{ matrix.flavor }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: windows-10-11-x64
+            legacy: false
+          - flavor: windows-7-8-x64-experimental
+            legacy: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: opencv/opencv
+          ref: ${{ env.OPENCV_REV }}
+          path: .deps/opencv
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - uses: jurplel/install-qt-action@v4
+        if: '!matrix.legacy'
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          modules: qtwebengine qtimageformats
+          cache: true
+      - name: Install Windows 7/8-compatible Qt SDK
+        if: matrix.legacy
+        shell: pwsh
+        run: ./packaging/windows/install-legacy-qt.ps1
+      - name: Build, test and stage
+        shell: pwsh
+        env:
+          LEGACY: ${{ matrix.legacy && 'ON' || 'OFF' }}
+        run: |
+          cmake "-DSOURCE=$PWD/.deps/opencv" "-DBUILD=$PWD/.deps/ocv-build" "-DPREFIX=$PWD/.deps/ocv" -P packaging/build-opencv.cmake
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR;$PWD/.deps/ocv" "-DSCAN_LEGACY_WINDOWS=$env:LEGACY"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build --parallel 3
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ctest --test-dir build --output-on-failure
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --install build --prefix "$PWD/dist/stage"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:QT_PLUGIN_PATH = ''
+          $env:QML_IMPORT_PATH = ''
+          & ./dist/stage/bin/ScanCleaner.exe --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Include notices
+        shell: bash
+        run: bash packaging/collect-notices.sh dist/stage .deps/opencv
+      - name: Build ZIP
+        shell: pwsh
+        env:
+          FLAVOR: ${{ matrix.flavor }}
+        run: Compress-Archive -Path ./dist/stage/* -DestinationPath "./dist/ScanCleaner-$env:FLAVOR.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.flavor }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS · ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: macos-15-intel
+          - arch: arm64
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: opencv/opencv
+          ref: ${{ env.OPENCV_REV }}
+          path: .deps/opencv
+          persist-credentials: false
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: clang_64
+          modules: qtwebengine qtimageformats
+          cache: true
+      - name: Build, test and stage app
+        env:
+          MAC_ARCH: ${{ matrix.arch }}
+        run: |
+          cmake "-DSOURCE=$PWD/.deps/opencv" "-DBUILD=$PWD/.deps/ocv-build" "-DPREFIX=$PWD/.deps/ocv" \
+            "-DMAC_ARCH=$MAC_ARCH" -P packaging/build-opencv.cmake
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            "-DCMAKE_PREFIX_PATH=$QT_ROOT_DIR;$PWD/.deps/ocv" \
+            "-DCMAKE_OSX_ARCHITECTURES=$MAC_ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+          cmake --build build --parallel 3
+          ctest --test-dir build --output-on-failure
+          cmake --install build --prefix "$PWD/dist/stage"
+          python3 packaging/macos/universal.py dist/stage/ScanCleaner.app --arch "$MAC_ARCH"
+          dist/stage/ScanCleaner.app/Contents/MacOS/ScanCleaner --version
+          bash packaging/collect-notices.sh dist/stage .deps/opencv
+          ditto -c -k --sequesterRsrc dist/stage "dist/ScanCleaner-macos-$MAC_ARCH.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  universal:
+    name: macOS · Universal 2
+    needs: macos
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: macos-*
+          path: artifacts
+      - name: Merge and verify both architectures
+        run: |
+          ditto -x -k artifacts/macos-arm64/ScanCleaner-macos-arm64.zip arm
+          ditto -x -k artifacts/macos-x86_64/ScanCleaner-macos-x86_64.zip intel
+          python3 packaging/macos/universal.py arm/ScanCleaner.app --intel intel/ScanCleaner.app --arch arm64 x86_64
+          arm/ScanCleaner.app/Contents/MacOS/ScanCleaner --version
+          mkdir dist
+          ditto -c -k --sequesterRsrc arm dist/ScanCleaner-macos-universal.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, macos, universal]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Publish verified artifacts and SHA-256 checksums
+        run: |
+          cd release
+          sha256sum ./*.zip ./*.deb ./*.pkg.tar.zst > SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "ScanCleaner $GITHUB_REF_NAME" \
+            --notes-file ../packaging/release-notes.md ./*.zip ./*.deb ./*.pkg.tar.zst SHA256SUMS.txt

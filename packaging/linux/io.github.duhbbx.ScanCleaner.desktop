@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ScanCleaner
+Name[zh_CN]=净页
+Comment=Clean up scanned PDFs and images
+Exec=ScanCleaner --input %f
+Terminal=false
+Categories=Graphics;Scanning;
+MimeType=application/pdf;image/png;image/jpeg;image/tiff;image/bmp;image/webp;

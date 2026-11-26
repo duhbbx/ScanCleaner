@@ -1,0 +1,24 @@
+pkgname=scan-cleaner
+pkgver=0.2.0
+pkgrel=1
+pkgdesc='Offline cleanup for scanned PDFs and images'
+arch=('x86_64')
+url='https://github.com/duhbbx/ScanCleaner'
+license=('MIT')
+depends=('qt6-base' 'qt6-declarative' 'qt6-webengine' 'qt6-imageformats' 'opencv')
+makedepends=('cmake' 'ninja')
+source=()
+sha256sums=()
+
+build() {
+    cmake -S "$startdir/source" -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build build --parallel 3
+}
+
+check() {
+    ctest --test-dir build --output-on-failure
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+}
