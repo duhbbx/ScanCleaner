@@ -1,0 +1,75 @@
+name: Promote tested release artifacts
+on:
+  workflow_dispatch:
+    inputs:
+      desktop_run:
+        description: Run ID with the macOS and Linux artifacts
+        required: true
+        type: string
+      windows_run:
+        description: Run ID with the Windows artifacts
+        required: true
+        type: string
+      tag:
+        description: Version of the existing draft release
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DESKTOP_RUN: ${{ inputs.desktop_run }}
+      WINDOWS_RUN: ${{ inputs.windows_run }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source runs and draft
+        run: |
+          [[ "$DESKTOP_RUN" =~ ^[0-9]+$ && "$WINDOWS_RUN" =~ ^[0-9]+$ ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          for run in "$DESKTOP_RUN" "$WINDOWS_RUN"; do
+            test "$(gh run view "$run" --json headBranch,workflowName --jq '.headBranch + "/" + .workflowName')" = 'main/Build and release'
+          done
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = 'true'
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.desktop_run }}
+          pattern: '{macos-*,ubuntu-*,debian-*,archlinux-*}'
+          path: dist/release
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.windows_run }}
+          pattern: windows-*
+          path: dist/release
+          merge-multiple: true
+      - name: Verify, upload and publish
+        run: |
+          version="${RELEASE_TAG#v}"
+          target="$(gh run view "$WINDOWS_RUN" --json headSha --jq .headSha)"
+          cd dist/release
+          files=(
+            "ScanCleaner-$version-ubuntu-24.04-amd64.deb"
+            "ScanCleaner-$version-debian-13-amd64.deb"
+            "scan-cleaner-$version-1-x86_64.pkg.tar.zst"
+            'ScanCleaner-macos-arm64.zip'
+            'ScanCleaner-macos-x86_64.zip'
+            'ScanCleaner-macos-universal.zip'
+            'ScanCleaner-windows-10-11-x64.zip'
+            'ScanCleaner-windows-7-8-x64-experimental.zip'
+          )
+          for file in "${files[@]}"; do
+            test -s "$file"
+            [[ "$file" != *.zip ]] || unzip -tq "$file"
+          done
+          sha256sum "${files[@]}" > SHA256SUMS.txt
+          gh release upload "$RELEASE_TAG" --clobber "${files[@]}" SHA256SUMS.txt
+          gh release edit "$RELEASE_TAG" --target "$target" --draft=false --latest
