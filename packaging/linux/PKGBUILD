@@ -1,5 +1,5 @@
 pkgname=scan-cleaner
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc='Offline cleanup for scanned PDFs and images'
 arch=('x86_64')
