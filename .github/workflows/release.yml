@@ -115,7 +115,7 @@ jobs:
         with:
           version: ${{ env.QT_VERSION }}
           arch: win64_msvc2022_64
-          modules: qtwebengine qtimageformats
+          modules: qtpdf qtimageformats
           extra: --timeout 120
           cache: true
       - name: Install Windows 7/8-compatible Qt SDK
@@ -181,7 +181,7 @@ jobs:
         with:
           version: ${{ env.QT_VERSION }}
           arch: clang_64
-          modules: qtwebengine qtimageformats
+          modules: qtpdf qtimageformats
           extra: --timeout 120
           cache: true
       - name: Build, test and stage app
