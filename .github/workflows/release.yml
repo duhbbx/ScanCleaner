@@ -4,6 +4,11 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      windows_only:
+        description: Rebuild and test only the Windows packages
+        type: boolean
+        default: false
 permissions:
   contents: read
 env:
@@ -12,6 +17,7 @@ env:
 
 jobs:
   linux:
+    if: ${{ !inputs.windows_only }}
     name: Linux · ${{ matrix.name }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -141,8 +147,18 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $env:QT_PLUGIN_PATH = ''
           $env:QML_IMPORT_PATH = ''
-          $process = Start-Process -FilePath ./dist/stage/bin/ScanCleaner.exe -ArgumentList '--version' -Wait -PassThru
-          if ($process.ExitCode) { exit $process.ExitCode }
+          $env:QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES = '1'
+          $inputFile = Join-Path $env:RUNNER_TEMP 'scancleaner-smoke.bmp'
+          $outputFile = Join-Path $env:RUNNER_TEMP 'scancleaner-smoke.pdf'
+          $bmp = '424d4600000000000000360000002800000002000000feffffff0100180000000000100000000000000000000000000000000000000000ff00ff000000ff0000ffffff0000'
+          [IO.File]::WriteAllBytes($inputFile, [Convert]::FromHexString($bmp))
+          $arguments = @('--input', ('"{0}"' -f $inputFile), '--output', ('"{0}"' -f $outputFile))
+          $process = Start-Process -FilePath ./dist/stage/bin/ScanCleaner.exe -ArgumentList $arguments -NoNewWindow -PassThru
+          if (!$process.WaitForExit(30000)) {
+            $process.Kill()
+            throw 'Packaged ScanCleaner did not finish the smoke test'
+          }
+          if ($process.ExitCode -or !(Test-Path $outputFile)) { throw 'Packaged PDF export failed' }
       - name: Include notices
         shell: bash
         run: bash packaging/collect-notices.sh dist/stage .deps/opencv
@@ -158,6 +174,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    if: ${{ !inputs.windows_only }}
     name: macOS · ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
