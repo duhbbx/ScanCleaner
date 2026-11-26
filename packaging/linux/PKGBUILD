@@ -5,6 +5,7 @@ pkgdesc='Offline cleanup for scanned PDFs and images'
 arch=('x86_64')
 url='https://github.com/duhbbx/ScanCleaner'
 license=('MIT')
+options=('!debug')
 depends=('qt6-base' 'qt6-declarative' 'qt6-webengine' 'qt6-imageformats' 'opencv')
 makedepends=('cmake' 'ninja')
 source=()
