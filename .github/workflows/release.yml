@@ -39,7 +39,7 @@ jobs:
             qt6-base-dev qt6-declarative-dev qt6-pdf-dev qt6-image-formats-plugins libopencv-dev \
             qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-dialogs \
             qml6-module-qtquick-layouts qml6-module-qtquick-templates qml6-module-qtquick-window \
-            qml6-module-qtqml-workerscript fonts-dejavu-core
+            qml6-module-qtqml qml6-module-qtqml-models qml6-module-qtqml-workerscript fonts-dejavu-core
       - name: Install Arch build dependencies
         if: matrix.flavor == 'archlinux-x86_64'
         run: |
@@ -64,7 +64,8 @@ jobs:
           useradd -m builder
           work=$(mktemp -d)
           mkdir -p "$work/source" dist
-          git archive HEAD | tar -x -C "$work/source"
+          git -c safe.directory="$GITHUB_WORKSPACE" archive HEAD -o "$work/source.tar"
+          tar -xf "$work/source.tar" -C "$work/source"
           cp packaging/linux/PKGBUILD "$work/PKGBUILD"
           chown -R builder:builder "$work"
           cd "$work"
