@@ -116,6 +116,7 @@ jobs:
           version: ${{ env.QT_VERSION }}
           arch: win64_msvc2022_64
           modules: qtwebengine qtimageformats
+          extra: --timeout 120
           cache: true
       - name: Install Windows 7/8-compatible Qt SDK
         if: matrix.legacy
@@ -128,7 +129,9 @@ jobs:
         run: |
           cmake "-DSOURCE=$PWD/.deps/opencv" "-DBUILD=$PWD/.deps/ocv-build" "-DPREFIX=$PWD/.deps/ocv" -P packaging/build-opencv.cmake
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR;$PWD/.deps/ocv" "-DSCAN_LEGACY_WINDOWS=$env:LEGACY"
+          $opencvConfig = Get-ChildItem "$PWD/.deps/ocv/x64" -Recurse -Filter OpenCVConfig.cmake | Select-Object -First 1
+          if (!$opencvConfig) { throw 'OpenCV CMake package is missing' }
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR" "-DOpenCV_DIR=$($opencvConfig.Directory.FullName)" "-DSCAN_LEGACY_WINDOWS=$env:LEGACY"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build build --parallel 3
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -179,6 +182,7 @@ jobs:
           version: ${{ env.QT_VERSION }}
           arch: clang_64
           modules: qtwebengine qtimageformats
+          extra: --timeout 120
           cache: true
       - name: Build, test and stage app
         env:
