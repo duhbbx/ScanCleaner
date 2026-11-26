@@ -30,7 +30,7 @@ PDF 预览最高 300 DPI，长边一般不超过 3200 像素。图片预览按�
 
 ## 编译
 
-依赖：CMake 3.24+、C++17、Qt 6.4+（Core、Gui、Quick、QuickControls2、Pdf、Concurrent，测试需要 Test）和 OpenCV 4（core、imgproc）。TIFF 和 WebP 需要 Qt Image Formats。发行版构建使用的依赖和命令见 [构建工作流](.github/workflows/release.yml)。
+依赖：CMake 3.24+、C++17、Qt 6.4+（Core、Gui、Quick、QuickControls2、Pdf、Concurrent，测试需要 Test）和 OpenCV 4 或 5（core、imgproc）。TIFF 和 WebP 需要 Qt Image Formats。发行版构建使用的依赖和命令见 [构建工作流](.github/workflows/release.yml)。
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release

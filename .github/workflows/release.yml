@@ -35,7 +35,7 @@ jobs:
         run: |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
-          apt-get install -y --no-install-recommends git ca-certificates build-essential cmake ninja-build dpkg-dev \
+          apt-get install -y --no-install-recommends git ca-certificates build-essential cmake ninja-build dpkg-dev file \
             qt6-base-dev qt6-declarative-dev qt6-pdf-dev qt6-image-formats-plugins libopencv-dev \
             qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-dialogs \
             qml6-module-qtquick-layouts qml6-module-qtquick-templates qml6-module-qtquick-window \
@@ -58,6 +58,9 @@ jobs:
           cpack --config build/CPackConfig.cmake -G DEB -B dist
           apt-get install -y ./dist/*.deb
           QT_QPA_PLATFORM=offscreen ScanCleaner --version
+          status=0
+          QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software timeout 4s ScanCleaner || status=$?
+          test "$status" -eq 124
       - name: Build and install an Arch package
         if: matrix.flavor == 'archlinux-x86_64'
         run: |
@@ -72,6 +75,9 @@ jobs:
           runuser -u builder -- makepkg --noconfirm --noprogressbar
           pacman -U --noconfirm ./*.pkg.tar.zst
           QT_QPA_PLATFORM=offscreen ScanCleaner --version
+          status=0
+          QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software timeout 4s ScanCleaner || status=$?
+          test "$status" -eq 124
           cp ./*.pkg.tar.zst "$GITHUB_WORKSPACE/dist/"
       - uses: actions/upload-artifact@v4
         with:
